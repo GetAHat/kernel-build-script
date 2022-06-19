@@ -1,0 +1,65 @@
+#!/bin/bash
+
+set -e
+
+while getopts v:j: flag
+do
+    case "${flag}" in
+        v) kernel_version=${OPTARG};;
+        j) num_of_threads=${OPTARG};;
+    esac
+done
+
+# Check that kernel version agr was passed
+if [[ ! $(echo $kernel_version) ]]; then
+    printf "\n#####\nERROR: Please specify kernel version as on https://kernel.org\n#####\n\n"
+    exit 1
+fi
+
+# Check that number of threads arg was passed, or safely use 2 threads
+if [[ ! $(echo $num_of_threads) ]]; then
+    printf "\n#######\nWARNING: Number of threads was not specified, defaulting to 2...\n#######\n\n"
+    num_of_threads=2
+fi
+
+# Check Debian-ish dependencies for building
+printf "\n####\nINFO: Checking dependencies\n####\n\n"
+sudo apt install -y build-essential libncurses5-dev gcc libssl-dev grub2 bc bison dwarves zstd flex rsync
+
+# Downloading kernel
+kernel_name=linux-$kernel_version
+kernel_archive_name=$kernel_name.tar.xz
+kernel_to_download="https://cdn.kernel.org/pub/linux/kernel/v5.x/$kernel_archive_name"
+
+# Creating new directory if not exist and cleaning it up just in case
+workdir=$PWD/builddir_$kernel_version
+sourcedir=$workdir/$kernel_name
+
+mkdir -p $workdir
+rm -rf $workdir/*
+mkdir $sourcedir
+cd $workdir
+
+# Get and unpack kernel into its own folder
+wget $kernel_to_download
+tar -xvf $kernel_archive_name 
+
+cd $sourcedir
+cp /boot/config-$(uname -r) $sourcedir/.config
+
+# Everything from old config and default values for anything new in that kernel
+make olddefconfig
+printf "\n\n#######\nWARNING: Using OldDefConfig - every NEW feature in this kernel will be accepted with whatever default parameter is.\n#######\n \
+\n\nPress Ctrl+C in the next 10 seconds to abort the script and modify config manually if needed.\n\n"
+sleep 10
+
+# Building the kernel
+printf "\n\n####\nINFO: Building kernel and deb packages. Could take a while...\n####\n\n"
+make deb-pkg -j$num_of_threads
+
+# Installing packages
+printf "\n####\nINFO: Installing packages\n####\n\n"
+sudo apt install ../*.deb
+
+printf "\n\n####\nINFO: Congrats! Linux Kernel $kernel_version is successfully installed. Please reboot to try it out.\n####\n\n"
+sleep 5
